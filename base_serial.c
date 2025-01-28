@@ -10,6 +10,8 @@
 #include <errno.h>
 
 #include "debug.h"
+#include "base_defs.h"
+
 #include "base_serial.h"
 
 extern int g_read_loop;
@@ -215,7 +217,7 @@ size_t read_port(void *const data, size_t const size , int port_descriptor , int
     return (size_t)0;
 }
 
-void *reader( int port_descriptor ) {
+void *reader( void *arg ) {
     char     buffer[512];
     size_t   result;
     char     rxd[128];
@@ -225,10 +227,12 @@ void *reader( int port_descriptor ) {
     int no_rx = 0;
     int dbg   = 1;
 
-    DEBUG_MSG( dbg, "  >> E %s L%d \n" , __FUNCTION__ , __LINE__  );
+    pthread_info tinfo = arg;
+
+    DEBUG_MSG( dbg, "  >> E %s , Thread %d L%d \n" , __FUNCTION__ , tinfo->thread_num , __LINE__  );
 
     while ( g_read_loop ) {
-        result = read_port(buffer, sizeof(buffer) , port_descriptor , dbg );
+        result = read_port(buffer, sizeof(buffer) , tinfo->file_handle , dbg );
 
         if (result) {
           rx_result =  add( rx_result, buffer , result) ;
