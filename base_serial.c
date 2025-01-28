@@ -5,7 +5,38 @@
 #include <fcntl.h>
 #include <termios.h>
 
+#include <string.h>
+
 #include <errno.h>
+
+#include "debug.h"
+#include "base_serial.h"
+
+extern int g_read_loop;
+
+string_t *add(string_t *string, void const *const data, size_t const size)
+{
+    size_t const oldsize = (string) ? string->size : (size_t)0;
+    string_t    *newstr;
+
+    newstr = realloc(string, sizeof(string_t) + oldsize + size + 1);
+    if (!newstr) {
+        if (string) {
+            string->size = 0;
+            free(string);
+        }
+        errno = ENOMEM;
+        return NULL;
+    }
+
+    if (size)
+        memcpy(&(newstr->data[oldsize]), data, size);
+
+    newstr->data[oldsize + size] = 0;
+    newstr->size = oldsize + size;
+
+    return newstr;
+}
 
 /* Open and configure device. Return -1 if an error occurs.
 */
@@ -15,7 +46,7 @@ int init_port(char const *const device , int dbg )
     int             lup_cnt;
     struct termios  settings;
 
-    if ( dbg ) printf( ">> En %s , device = %s  \n" , __FUNCTION__ , device  );
+    DEBUG_MSG ( dbg, ">> En %s , device = %s  \n" , __FUNCTION__ , device  );
 
     if (!device || !*device) {
         printf( "<< LV %s NO deice !! dev = %s \n" , __FUNCTION__ , device );
@@ -104,6 +135,29 @@ int init_port(char const *const device , int dbg )
     return descriptor;
 }
 
+/* Set char by char mode, noecho */
+void set_terminal_raw( void ){
+    struct  termios ttystate;
+    tcgetattr( 0, &ttystate);               /* read current setting */
+    ttystate.c_lflag          &= ~ICANON;   /* no buffering     */
+    ttystate.c_lflag          &= ~ECHO;     /* no echo either   */
+    ttystate.c_cc[VMIN]        =  1;        /* get 1 char at a time */
+    tcsetattr( 0 , TCSANOW, &ttystate);     /* install settings */
+}
+
+/*
+  pass in 0 to save current mode
+  pass in 1 to restore prev mode
+*/
+void tty_mode( int operation ) {
+    static struct termios original_mode;
+    if ( operation == 0 )
+        tcgetattr( 0, &original_mode );
+    else
+        tcsetattr( 0, TCSANOW, &original_mode );
+  return;
+}
+
 int write_port(void const *const data, size_t const size, int port_descriptor )
 {
     char const       *p = (char const *)data;
@@ -159,5 +213,50 @@ size_t read_port(void *const data, size_t const size , int port_descriptor , int
     /* r < -1, should never happen. */
     errno = EIO;
     return (size_t)0;
+}
+
+void *reader( int port_descriptor ) {
+    char     buffer[512];
+    size_t   result;
+    char     rxd[128];
+    char    *endp, *endpp;
+
+    pstring_t rx_result = NULL;
+    int no_rx = 0;
+    int dbg   = 1;
+
+    DEBUG_MSG( dbg, "  >> E %s L%d \n" , __FUNCTION__ , __LINE__  );
+
+    while ( g_read_loop ) {
+        result = read_port(buffer, sizeof(buffer) , port_descriptor , dbg );
+
+        if (result) {
+          rx_result =  add( rx_result, buffer , result) ;
+          DEBUG_MSG( dbg, "    rx> '%s' (%d characters).\n", buffer , result );
+          endpp = rx_result->data+(rx_result->size-2);
+          endp  = rx_result->data+(rx_result->size-1);
+          //printf( "rxd endp=%x %c\n" , *endp, *endp );
+          if ( *endp == '\n' || *endp == '\r' ) {
+            DEBUG_MSG( dbg, "    rxd endpp=%x endp=%x CR=%x LF=%x \n" , *endpp, *endp , '\n' , '\r' );
+            DEBUG_MSG( dbg, "    rxd ->%s<-\n" , rx_result->data );
+            rx_result->size = 0;
+            free ( rx_result );
+            rx_result = NULL;
+          }
+        }
+
+        if (errno == EINTR || errno == EWOULDBLOCK) {
+            /* Sleep for a millisec, then retry */
+            usleep(1000);
+            continue;
+        }
+      //usleep(100000);  // go back to this ??
+      sleep( 0.1 ); // increase or decrease according to how many chars in buffer you want to accumulate
+    }
+
+    DEBUG_MSG( dbg, "  << Lv %s L%d \n" , __FUNCTION__ , __LINE__  );
+
+    /* Never reached. */
+    return NULL;
 }
 
