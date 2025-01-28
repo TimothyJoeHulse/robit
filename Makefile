@@ -25,8 +25,9 @@ endif
 TARGET := $(BIN_PATH)/$(TARGET_NAME)
 TARGET_DEBUG := $(DBG_PATH)/$(TARGET_NAME)
 
-SRC := main.c base_serial.c
-OBJ := main.o base_serial.o
+SRC := main.c base_serial.c debug.c
+OBJ := main.o base_serial.o debug.o
+
 OBJ_DEBUG := $(addprefix $(DBG_PATH)/, $(addsuffix .o, $(notdir $(basename $(SRC)))))
 
 # clean files list
